@@ -24,6 +24,8 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 )
 
+require google.golang.org/genproto/googleapis/rpc v0.0.0-20251022142026-3a174f9686a8 // indirect
+
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -36,5 +38,6 @@ require (
 	github.com/weppos/publicsuffix-go v0.40.3-0.20250617082559-9b2e24a9e482 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/text v0.32.0 // indirect
-	google.golang.org/protobuf v1.36.8 // indirect
+	google.golang.org/grpc v1.77.0
+	google.golang.org/protobuf v1.36.10 // indirect
 )
