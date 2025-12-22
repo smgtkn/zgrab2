@@ -261,26 +261,3 @@ func deriveAuthority(override string, target *zgrab2.ScanTarget) string {
 	}
 	return fmt.Sprintf("%s:%d", target.IP.String(), target.Port)
 }
-
-// RegisterModule registers the gRPC reflection module with the zgrab2 framework.
-func RegisterModule() {
-	var module Module
-	cmd, err := zgrab2.AddCommand(
-		"grpc",
-		"gRPC Server Reflection (HTTP/2)",
-		module.Description(),
-		0,
-		&module,
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// AddCommand sets a default port; we want to choose it dynamically in Init()
-	// (e.g., 80 for plaintext, 443 for TLS), so remove the default.
-	cmd.FindOptionByLongName("port").Default = nil
-
-	// Provide a clearer port description for users.
-	cmd.FindOptionByLongName("port").Description =
-		"Target port (default: 80 for plaintext, 443 when used with --use-tls)"
-}
