@@ -5,17 +5,17 @@ import (
 	"github.com/zmap/zgrab2"
 )
 
-type Module struct{}
+type GRPCModule struct{}
 
-func (m *Module) NewFlags() any              { return new(Flags) }
-func (m *Module) NewScanner() zgrab2.Scanner { return new(Scanner) }
-func (m *Module) Description() string {
+func (m *GRPCModule) NewFlags() any              { return new(Flags) }
+func (m *GRPCModule) NewScanner() zgrab2.Scanner { return new(Scanner) }
+func (m *GRPCModule) Description() string {
 	return "Probe gRPC Server Reflection over HTTP/2 and collect headers/trailers and (if available) the first reflection response."
 }
 
-// RegisterModule registers this module with zgrab2.
-func RegisterModule() {
-	var module Module
+// RegisterGRPCModule registers this module with zgrab2.
+func RegisterGRPCModule() {
+	var module GRPCModule
 	cmd, err := zgrab2.AddCommand(
 		"grpc",
 		"gRPC Server Reflection (HTTP/2)",
@@ -35,5 +35,5 @@ func RegisterModule() {
 
 // Auto-register when the package is compiled into the binary.
 func init() {
-	RegisterModule()
+	RegisterGRPCModule()
 }

@@ -20,7 +20,7 @@ type Flags struct {
 	// If unset (0), we set defaults in Init().
 	Timeout time.Duration `long:"timeout" default:"5s" description:"Overall per-target timeout (dial + probe)"`
 	// If true, try v1 first, then v1alpha on UNIMPLEMENTED.
-	TryV1Alpha bool `long:"try-v1alpha" default:"true" description:"If v1 reflection is UNIMPLEMENTED, try v1alpha"`
+	TryV1Alpha bool `long:"try-v1alpha" description:"If v1 reflection is UNIMPLEMENTED, try v1alpha"`
 	// Optional override for :authority; otherwise Domain or IP is used.
 	Authority string `long:"authority" description:"Override HTTP/2 :authority pseudo-header"`
 	// Optional user-agent to send.
