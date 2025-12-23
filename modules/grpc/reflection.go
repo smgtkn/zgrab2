@@ -44,7 +44,7 @@ func (k reflectionKind) Path() string {
 	case reflectionV1Alpha:
 		return "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo"
 	default:
-		return "/grpc.reflection.unknown/ServerReflectionInfo"
+		return "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo"
 	}
 }
 
@@ -123,7 +123,6 @@ func probeReflectionOnce(ctx context.Context, conn net.Conn, authority, userAgen
 	}
 
 	var (
-		headerSeen    bool
 		respBuf       bytes.Buffer
 		gotFirstMsg   bool
 		firstMsgBytes []byte
@@ -156,26 +155,32 @@ func probeReflectionOnce(ctx context.Context, conn net.Conn, authority, userAgen
 			}
 			hdrs := decodeHeaders(block)
 
-			// First HEADERS are response headers; later HEADERS with END_STREAM are trailers.
-			if !headerSeen {
-				headerSeen = true
+			// HEADERS without END_STREAM are response headers, HEADERS with END_STREAM are trailers.
+
+			// If the server returns "content-type: application/grpc" we'll see it here.
+			if !endStream {
 				out.Headers = hdrs
 				out.HTTPStatus = parseHTTPStatus(hdrs)
-				// If the server returns "content-type: application/grpc" you'll see it here.
-			} else {
-				// treat as trailers
-				out.Trailers = hdrs
-				st, msg := parseGRPCStatusAndMessage(hdrs)
-				out.GRPCStatus = st
-				out.GRPCMessage = msg
+
 			}
 
 			if endStream {
 				// END_STREAM on headers means stream is done (trailers-only or trailers end)
 				if !gotFirstMsg {
-					// no message ever arrived
+					out.Trailers = hdrs
+					st, msg := parseGRPCStatusAndMessage(hdrs)
+					out.GRPCStatus = st
+					out.GRPCMessage = msg
+
+					// no message ever arrived, END_STREAM means we are done
 					return out, nil
 				}
+				// the headers that came with the END_STREAM are trailers
+				out.Trailers = hdrs
+				st, msg := parseGRPCStatusAndMessage(hdrs)
+				out.GRPCStatus = st
+				out.GRPCMessage = msg
+
 				return out, nil
 			}
 

@@ -112,7 +112,7 @@ func (s *Scanner) Init(flags zgrab2.ScanFlags) error {
 		if s.cfg.UseTLS {
 			s.cfg.Port = 443
 		} else {
-			s.cfg.Port = 80
+			s.cfg.Port = 50051 //Default grpc port
 		}
 	}
 
@@ -171,6 +171,8 @@ func (s *Scanner) Scan(ctx context.Context, dialGroup *zgrab2.DialerGroup, targe
 
 	// If v1 says UNIMPLEMENTED and we’re allowed to try v1alpha, do that
 	if s.cfg.TryV1Alpha && a1.GRPCStatus != nil && *a1.GRPCStatus == 12 {
+
+		//TODO: need to update this to try unless there is any respose to first attempt, because some servers may not return any grpc-status
 		// Only try if we still have time left
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) > 250*time.Millisecond {
 			a2 := s.runAttempt(ctx, dialGroup, target, res.Authority, reflectionV1Alpha)

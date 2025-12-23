@@ -30,7 +30,7 @@ func RegisterGRPCModule() {
 	// Remove default port so Init() can choose based on TLS/plaintext mode.
 	cmd.FindOptionByLongName("port").Default = nil
 	cmd.FindOptionByLongName("port").Description =
-		"Target port (default: 80 for plaintext, 443 when used with --use-tls)"
+		"Target port (default: 50051 for plaintext, 443 when used with --use-tls)"
 }
 
 // Auto-register when the package is compiled into the binary.
