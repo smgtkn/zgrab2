@@ -27,4 +27,4 @@ dist/*
 .vscode/*
 .idea/*
 targets.txt
-results.json
+Results/
