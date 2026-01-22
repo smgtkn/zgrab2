@@ -29,11 +29,11 @@ type Flags struct {
 
 // Results is emitted as JSON under data.grpc.
 type Results struct {
-	UseTLS    bool   `json:"use_tls"`
-	Scheme    string `json:"scheme"` // "http" or "https"
-	ALPN      string `json:"alpn,omitempty"`
-	Address   string `json:"address"`
-	Authority string `json:"authority"`
+	UseTLS    bool           `json:"use_tls"`
+	Scheme    string         `json:"scheme"` // "http" or "https"
+	Address   string         `json:"address"`
+	Authority string         `json:"authority"`
+	TLSLog    *zgrab2.TLSLog `json:"tls_log,omitempty"`
 
 	Attempts []AttemptResult `json:"attempts,omitempty"`
 }
@@ -166,7 +166,8 @@ func (s *Scanner) Scan(ctx context.Context, dialGroup *zgrab2.DialerGroup, targe
 	}
 
 	// Attempt v1 first
-	a1 := s.runAttempt(ctx, dialGroup, target, res.Authority, reflectionV1)
+
+	a1, tlsLog := s.runAttempt(ctx, dialGroup, target, res.Authority, reflectionV1)
 	res.Attempts = append(res.Attempts, a1)
 
 	// If v1 says UNIMPLEMENTED and we’re allowed to try v1alpha, do that
@@ -175,23 +176,29 @@ func (s *Scanner) Scan(ctx context.Context, dialGroup *zgrab2.DialerGroup, targe
 		//TODO: need to update this to try unless there is any respose to first attempt, because some servers may not return any grpc-status
 		// Only try if we still have time left
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) > 250*time.Millisecond {
-			a2 := s.runAttempt(ctx, dialGroup, target, res.Authority, reflectionV1Alpha)
+			a2, tlsLog := s.runAttempt(ctx, dialGroup, target, res.Authority, reflectionV1Alpha)
 			res.Attempts = append(res.Attempts, a2)
+			if tlsLog != nil {
+				res.TLSLog = tlsLog
+
+			}
 		}
 	}
+
+	res.TLSLog = tlsLog
 
 	return zgrab2.SCAN_SUCCESS, res, nil
 }
 
-func (s *Scanner) runAttempt(ctx context.Context, dialGroup *zgrab2.DialerGroup, target *zgrab2.ScanTarget, authority string, which reflectionKind) AttemptResult {
+func (s *Scanner) runAttempt(ctx context.Context, dialGroup *zgrab2.DialerGroup, target *zgrab2.ScanTarget, authority string, which reflectionKind) (AttemptResult, *zgrab2.TLSLog) {
 	// Dial
-	conn, alpn, dialErr := dialTarget(ctx, dialGroup, target, s.cfg.UseTLS)
+	conn, tlsLog, dialErr := dialTarget(ctx, dialGroup, target, s.cfg.UseTLS)
 	if dialErr != nil {
 		return AttemptResult{
 			ReflectionService: which.String(),
 			Path:              which.Path(),
 			Error:             dialErr.Error(),
-		}
+		}, tlsLog
 	}
 	defer conn.Close()
 
@@ -205,10 +212,6 @@ func (s *Scanner) runAttempt(ctx context.Context, dialGroup *zgrab2.DialerGroup,
 		ReflectionService: which.String(),
 		Path:              which.Path(),
 	}
-	if alpn != "" {
-		// Put ALPN info into attempt headers (lightweight)
-		ar.Headers = map[string][]string{"_alpn": {alpn}}
-	}
 
 	out, err := probeReflectionOnce(ctx, conn, authority, s.cfg.UserAgent, which)
 	if err != nil {
@@ -218,11 +221,11 @@ func (s *Scanner) runAttempt(ctx context.Context, dialGroup *zgrab2.DialerGroup,
 		}
 		ar.Error = err.Error()
 		mergeAttempt(&ar, out)
-		return ar
+		return ar, tlsLog
 	}
 
 	mergeAttempt(&ar, out)
-	return ar
+	return ar, tlsLog
 }
 
 func mergeAttempt(dst *AttemptResult, src AttemptResult) {

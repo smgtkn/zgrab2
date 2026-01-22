@@ -48,27 +48,27 @@ func (k reflectionKind) Path() string {
 	}
 }
 
-// dialTarget dials using ZGrab2 dialers. Returns conn and (if TLS) negotiated ALPN when available.
-func dialTarget(ctx context.Context, dialGroup *zgrab2.DialerGroup, target *zgrab2.ScanTarget, useTLS bool) (net.Conn, string, error) {
+func dialTarget(ctx context.Context, dialGroup *zgrab2.DialerGroup, target *zgrab2.ScanTarget, useTLS bool) (net.Conn, *zgrab2.TLSLog, error) {
 	addr := net.JoinHostPort(target.IP.String(), strconv.Itoa(int(target.Port)))
 
 	if !useTLS {
 		conn, err := dialGroup.L4Dialer(target)(ctx, "tcp", addr)
 		if err != nil {
-			return nil, "", fmt.Errorf("plaintext dial failed: %w", err)
+			return nil, nil, fmt.Errorf("plaintext dial failed: %w", err)
 		}
-		return conn, "", nil
+		return conn, nil, nil
 	}
 
 	// TLS
-	conn, err := dialGroup.GetTLSDialer(ctx, target)("tcp", addr)
+	connTLS, err := dialGroup.GetTLSDialer(ctx, target)("tcp", addr)
 	if err != nil {
-		return nil, "", fmt.Errorf("TLS dial failed: %w", err)
+		return nil, nil, fmt.Errorf("TLS dial failed: %w", err)
 	}
 
-	// Best-effort ALPN extraction: zgrab2 TLS wrapper may not expose it; leave empty if not available.
+	var log *zgrab2.TLSLog
+	log = connTLS.GetLog()
 	// Some tls.Conn types have ConnectionState() with NegotiatedProtocol, but we avoid type assertions here.
-	return conn, "", nil
+	return connTLS, log, nil
 }
 
 // probeReflectionOnce sends one ListServices request, reads first response if available,
