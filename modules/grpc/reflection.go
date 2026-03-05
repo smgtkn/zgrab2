@@ -3,7 +3,6 @@ package grpc
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -14,6 +13,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/descriptorpb"
 
 	refv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"
 	refa "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
@@ -195,7 +195,6 @@ func probeReflectionOnce(ctx context.Context, conn net.Conn, authority, userAgen
 				if ok {
 					gotFirstMsg = true
 					firstMsgBytes = msgBytes
-					out.ReflectionResponseRawBase64 = base64.StdEncoding.EncodeToString(firstMsgBytes)
 
 					// Best-effort decode services list
 					svcs := decodeListServicesResponse(which, firstMsgBytes)
@@ -444,5 +443,254 @@ func decodeListServicesResponse(which reflectionKind, msg []byte) []string {
 
 	default:
 		return nil
+	}
+}
+
+// buildDescribeServiceMessage builds a DescribeService reflection request for the given service name.
+func buildDescribeServiceMessage(which reflectionKind, serviceName string) ([]byte, error) {
+	switch which {
+	case reflectionV1:
+		req := &refv1.ServerReflectionRequest{
+			MessageRequest: &refv1.ServerReflectionRequest_FileContainingSymbol{
+				FileContainingSymbol: serviceName,
+			},
+		}
+		return proto.Marshal(req)
+	case reflectionV1Alpha:
+		req := &refa.ServerReflectionRequest{
+			MessageRequest: &refa.ServerReflectionRequest_FileContainingSymbol{
+				FileContainingSymbol: serviceName,
+			},
+		}
+		return proto.Marshal(req)
+	default:
+		return nil, errors.New("unknown reflection kind")
+	}
+}
+
+// DescribeResponse holds parsed info from a gRPC method descriptor.
+type DescribeResponse struct {
+	Descriptor string // full descriptor response as hex string
+}
+
+// decodeDescribeServiceResponse parses the descriptor and formats it as readable text
+// similar to grpcurl describe output.
+func decodeDescribeServiceResponse(which reflectionKind, msg []byte) DescribeResponse {
+	var output strings.Builder
+
+	switch which {
+	case reflectionV1:
+		var respMsg refv1.ServerReflectionResponse
+		if err := proto.Unmarshal(msg, &respMsg); err != nil {
+			return DescribeResponse{Descriptor: fmt.Sprintf("Error parsing response: %v", err)}
+		}
+
+		fileResp := respMsg.GetFileDescriptorResponse()
+		if fileResp == nil || len(fileResp.FileDescriptorProto) == 0 {
+			return DescribeResponse{}
+		}
+
+		for _, fdBytes := range fileResp.FileDescriptorProto {
+			var fd descriptorpb.FileDescriptorProto
+			if err := proto.Unmarshal(fdBytes, &fd); err != nil {
+				continue
+			}
+
+			// Extract service information
+			for _, svc := range fd.Service {
+				if svc.Name != nil {
+					for _, method := range svc.Method {
+						if method.Name != nil && method.InputType != nil && method.OutputType != nil {
+							inputType := strings.TrimPrefix(*method.InputType, ".")
+							outputType := strings.TrimPrefix(*method.OutputType, ".")
+							streamIn := method.ClientStreaming != nil && *method.ClientStreaming
+							streamOut := method.ServerStreaming != nil && *method.ServerStreaming
+
+							methodSig := fmt.Sprintf("%s.%s ( %s ) returns ( %s )", *svc.Name, *method.Name, inputType, outputType)
+							if streamIn {
+								methodSig += " (client streaming)"
+							}
+							if streamOut {
+								methodSig += " (server streaming)"
+							}
+							output.WriteString(methodSig)
+							output.WriteString("\n")
+						}
+					}
+				}
+			}
+		}
+
+	case reflectionV1Alpha:
+		var respMsg refa.ServerReflectionResponse
+		if err := proto.Unmarshal(msg, &respMsg); err != nil {
+			return DescribeResponse{Descriptor: fmt.Sprintf("Error parsing response: %v", err)}
+		}
+
+		fileResp := respMsg.GetFileDescriptorResponse()
+		if fileResp == nil || len(fileResp.FileDescriptorProto) == 0 {
+			return DescribeResponse{}
+		}
+
+		for _, fdBytes := range fileResp.FileDescriptorProto {
+			var fd descriptorpb.FileDescriptorProto
+			if err := proto.Unmarshal(fdBytes, &fd); err != nil {
+				continue
+			}
+
+			// Extract service information
+			for _, svc := range fd.Service {
+				if svc.Name != nil {
+					for _, method := range svc.Method {
+						if method.Name != nil && method.InputType != nil && method.OutputType != nil {
+							inputType := strings.TrimPrefix(*method.InputType, ".")
+							outputType := strings.TrimPrefix(*method.OutputType, ".")
+							streamIn := method.ClientStreaming != nil && *method.ClientStreaming
+							streamOut := method.ServerStreaming != nil && *method.ServerStreaming
+
+							methodSig := fmt.Sprintf("%s.%s ( %s ) returns ( %s )", *svc.Name, *method.Name, inputType, outputType)
+							if streamIn {
+								methodSig += " (client streaming)"
+							}
+							if streamOut {
+								methodSig += " (server streaming)"
+							}
+							output.WriteString(methodSig)
+							output.WriteString("\n")
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return DescribeResponse{
+		Descriptor: output.String(),
+	}
+}
+
+// probeDescribeService sends a DescribeService request for a specific service and reads the response.
+func probeDescribeService(ctx context.Context, conn net.Conn, authority, userAgent, serviceName string, which reflectionKind) (DescribeResponse, *int32, string, string, error) {
+	result := DescribeResponse{}
+	var grpcStatus *int32
+	var grpcMsg string
+	var respBase64 string
+
+	fr := http2.NewFramer(conn, conn)
+
+	// send client preface + initial settings on the fresh connection
+	if err := writeClientPrefaceAndSettings(conn, fr); err != nil {
+		return result, grpcStatus, grpcMsg, respBase64, fmt.Errorf("http2 preface/settings failed: %w", err)
+	}
+	// read and ack server settings (best-effort)
+	_ = readAndAckServerSettings(fr)
+
+	streamID := uint32(1)
+
+	// Build and send request HEADERS
+	reqHeaders := buildGRPCRequestHeaders(authority, which.Path(), userAgent)
+	hb, err := encodeHeaders(reqHeaders)
+	if err != nil {
+		return result, grpcStatus, grpcMsg, respBase64, fmt.Errorf("hpack encode headers failed: %w", err)
+	}
+	if err := fr.WriteHeaders(http2.HeadersFrameParam{
+		StreamID:      streamID,
+		BlockFragment: hb,
+		EndHeaders:    true,
+		EndStream:     false,
+	}); err != nil {
+		return result, grpcStatus, grpcMsg, respBase64, fmt.Errorf("write headers failed: %w", err)
+	}
+
+	// Build and send DescribeService request
+	msg, err := buildDescribeServiceMessage(which, serviceName)
+	if err != nil {
+		return result, grpcStatus, grpcMsg, respBase64, err
+	}
+	grpcData := frameGRPCMessage(msg)
+
+	if err := fr.WriteData(streamID, true, grpcData); err != nil {
+		return result, grpcStatus, grpcMsg, respBase64, fmt.Errorf("write data failed: %w", err)
+	}
+
+	var (
+		respBuf     bytes.Buffer
+		gotFirstMsg bool
+	)
+
+	// Read frames, similar to probeReflectionOnce
+	for {
+		select {
+		case <-ctx.Done():
+			_ = fr.WriteRSTStream(streamID, http2.ErrCodeCancel)
+			return result, grpcStatus, grpcMsg, respBase64, ctx.Err()
+		default:
+		}
+
+		f, err := fr.ReadFrame()
+		if err != nil {
+			return result, grpcStatus, grpcMsg, respBase64, fmt.Errorf("read frame failed: %w", err)
+		}
+
+		switch ff := f.(type) {
+		case *http2.HeadersFrame:
+			block, endStream, berr := readFullHeaderBlock(fr, ff)
+			if berr != nil {
+				continue
+			}
+			hdrs := decodeHeaders(block)
+
+			if endStream {
+				// Trailers-only or final trailers
+				if st, msg := parseGRPCStatusAndMessage(hdrs); st != nil {
+					grpcStatus = st
+					grpcMsg = msg
+				}
+
+				if !gotFirstMsg {
+					// No message arrived
+					return result, grpcStatus, grpcMsg, respBase64, nil
+				}
+				// Got message and trailers, return
+				return result, grpcStatus, grpcMsg, respBase64, nil
+			}
+
+		case *http2.DataFrame:
+			if ff.StreamID != streamID {
+				continue
+			}
+			if len(ff.Data()) > 0 && !gotFirstMsg {
+				respBuf.Write(ff.Data())
+				msgBytes, ok := extractFirstGRPCMessage(respBuf.Bytes())
+				if ok {
+					gotFirstMsg = true
+					// Decode the describe response
+					result = decodeDescribeServiceResponse(which, msgBytes)
+				}
+			}
+			if ff.StreamEnded() {
+				if !gotFirstMsg {
+					return result, grpcStatus, grpcMsg, respBase64, nil
+				}
+				return result, grpcStatus, grpcMsg, respBase64, nil
+			}
+
+		case *http2.RSTStreamFrame:
+			if ff.StreamID == streamID {
+				if !gotFirstMsg {
+					return result, grpcStatus, grpcMsg, respBase64, fmt.Errorf("stream reset: %v", ff.ErrCode)
+				}
+				return result, grpcStatus, grpcMsg, respBase64, nil
+			}
+
+		case *http2.GoAwayFrame:
+			if gotFirstMsg {
+				return result, grpcStatus, grpcMsg, respBase64, nil
+			}
+			return result, grpcStatus, grpcMsg, respBase64, errors.New("received GOAWAY before describe response")
+
+		default:
+			// Ignore other frames
+		}
 	}
 }
