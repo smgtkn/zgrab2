@@ -118,9 +118,7 @@ func probeReflectionOnce(ctx context.Context, conn net.Conn, authority, userAgen
 	// - first reflection response message is decoded, OR
 	// - we get trailers with END_STREAM, OR
 	// - ctx deadline hits
-	out := AttemptResult{
-		Path: which.Path(),
-	}
+	out := AttemptResult{}
 
 	var (
 		respBuf       bytes.Buffer

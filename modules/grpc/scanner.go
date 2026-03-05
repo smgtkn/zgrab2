@@ -45,7 +45,6 @@ type Results struct {
 // AttemptResult captures one reflection attempt (v1 or v1alpha).
 type AttemptResult struct {
 	ReflectionService string `json:"reflection_service"` // "v1" or "v1alpha"
-	Path              string `json:"path"`
 
 	HTTPStatus int `json:"http_status,omitempty"`
 
@@ -217,7 +216,6 @@ func (s *Scanner) runAttempt(ctx context.Context, dialGroup *zgrab2.DialerGroup,
 	if dialErr != nil {
 		return AttemptResult{
 			ReflectionService: which.String(),
-			Path:              which.Path(),
 			Error:             dialErr.Error(),
 		}, tlsLog
 	}
@@ -231,7 +229,6 @@ func (s *Scanner) runAttempt(ctx context.Context, dialGroup *zgrab2.DialerGroup,
 	// Perform reflection probe over HTTP/2 frames
 	ar := AttemptResult{
 		ReflectionService: which.String(),
-		Path:              which.Path(),
 	}
 
 	out, err := probeReflectionOnce(ctx, conn, authority, s.cfg.UserAgent, which)
