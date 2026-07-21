@@ -399,9 +399,17 @@ func extractFirstGRPCMessage(buf []byte) ([]byte, bool) {
 	}
 	// buf[0] compression flag (ignore)
 	n := uint32(buf[1])<<24 | uint32(buf[2])<<16 | uint32(buf[3])<<8 | uint32(buf[4])
-	if uint32(len(buf)) < 5+n {
-		return nil, false
-	}
+	// if uint32(len(buf)) < 5+n {
+	// 	return nil, false
+	// }
+
+
+
+    // Reject absurdly large messages.
+    if n > uint32(len(buf)-5) {
+        return nil, false
+    }
+
 	msg := make([]byte, n)
 	copy(msg, buf[5:5+n])
 	return msg, true
