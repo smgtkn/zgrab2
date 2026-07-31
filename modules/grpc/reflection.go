@@ -481,7 +481,7 @@ type DescribeResponse struct {
 
 // decodeDescribeServiceResponse parses the descriptor and formats it as readable text
 // similar to grpcurl describe output.
-func decodeDescribeServiceResponse(which reflectionKind, msg []byte) DescribeResponse {
+func decodeDescribeServiceResponse(which reflectionKind, msg []byte, svcName string) DescribeResponse {
 	var output strings.Builder
 
 	switch which {
@@ -538,15 +538,37 @@ func decodeDescribeServiceResponse(which reflectionKind, msg []byte) DescribeRes
 			return DescribeResponse{}
 		}
 
+		requested := svcName
+		if i := strings.LastIndex(requested, "."); i >= 0 {
+			requested = requested[i+1:]
+			// fmt.Printf("Looking for service: %s\n", requested)
+		}
+
+
 		for _, fdBytes := range fileResp.FileDescriptorProto {
 			var fd descriptorpb.FileDescriptorProto
 			if err := proto.Unmarshal(fdBytes, &fd); err != nil {
 				continue
 			}
 
+
+			// fmt.Printf("\n===== File: %s =====\n", fd.GetName())
+			// fmt.Printf("File %s has %d services\n", fd.GetName(), len(fd.Service))
+
+			// fmt.Printf("Package: %s\n", fd.GetPackage())
+			// fmt.Printf("Services in this file:\n")
+			// for _, svc := range fd.Service {
+			// 	fmt.Printf("  - %s\n", svc.GetName())
+			// }
+
+
 			// Extract service information
 			for _, svc := range fd.Service {
 				if svc.Name != nil {
+					if svc.GetName() != requested {
+						// fmt.Printf("Skipping service: %s\n", svc.GetName(), "Requested: ", requested)
+						continue
+					}
 					for _, method := range svc.Method {
 						if method.Name != nil && method.InputType != nil && method.OutputType != nil {
 							inputType := strings.TrimPrefix(*method.InputType, ".")
@@ -671,7 +693,7 @@ func probeDescribeService(ctx context.Context, conn net.Conn, authority, userAge
 				if ok {
 					gotFirstMsg = true
 					// Decode the describe response
-					result = decodeDescribeServiceResponse(which, msgBytes)
+					result = decodeDescribeServiceResponse(which, msgBytes, serviceName)
 				}
 			}
 			if ff.StreamEnded() {

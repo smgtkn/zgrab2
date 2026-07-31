@@ -448,7 +448,7 @@ func (s *Scanner) probeDescribeServicesSingleConn(ctx context.Context, conn net.
 					msgBytes, ok := extractFirstGRPCMessage(respBuf.Bytes())
 					if ok {
 						gotFirstMsg = true
-						decoded := decodeDescribeServiceResponse(which, msgBytes)
+						decoded := decodeDescribeServiceResponse(which, msgBytes, svcName)
 						sd.Descriptor = decoded.Descriptor
 					}
 				}
